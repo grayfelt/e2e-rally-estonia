@@ -49,12 +49,15 @@ class PilotNet(nn.Module):
         return x
 
 
+import torch
+import torch.nn as nn
+
 class PilotNetConditional(nn.Module):
     """
     Network from 'End-to-end Driving via Conditional Imitation Learning' paper:
     https://arxiv.org/abs/1710.02410
 
-    There is separate policy branch for each road selection, by default 3 for going straight, turning left and right.
+    There is a separate policy branch for each road selection, by default 3 for going straight, turning left and right.
     """
 
     def __init__(self, n_input_channels=3, n_outputs=1, n_branches=1):
@@ -80,9 +83,11 @@ class PilotNetConditional(nn.Module):
             nn.Flatten()
         )
 
+        self.lstm = nn.RNN(1664, 128, batch_first=True)  # Add LSTM layer
+
         self.conditional_branches = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(1664, 100),
+                nn.Linear(128, 100),  # Use LSTM output size as input to the first linear layer
                 nn.BatchNorm1d(100),
                 nn.LeakyReLU(),
                 nn.Linear(100, 50),
@@ -91,11 +96,14 @@ class PilotNetConditional(nn.Module):
                 nn.Linear(50, 10),
                 nn.LeakyReLU(),
                 nn.Linear(10, n_outputs),
-            ) for i in range(n_branches)
+            ) for _ in range(n_branches)
         ])
 
     def forward(self, x):
         x = self.features(x)
+        x = x.unsqueeze(0)  # Add batch dimension for LSTM
+        x, _ = self.lstm(x)  # Pass through LSTM layer
+        x = x.squeeze(0)  # Remove batch dimension
         x = torch.cat([out(x) for out in self.conditional_branches], dim=1)
         return x
 
